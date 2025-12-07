@@ -701,3 +701,164 @@ sudo ./fix-dify-deployment.sh
 
 *— 天才少女哈雷酱 (￣▽￣)b*
 
+
+---
+
+## 升级指南
+
+### 升级步骤
+
+当 Dify 发布新版本时，按以下步骤升级：
+
+#### 步骤 1：查看最新版本
+
+访问 [Dify GitHub Releases](https://github.com/langgenius/dify/releases) 查看最新版本号。
+
+或使用命令查看 Docker Hub 上的标签：
+```bash
+# 查看 dify-api 最新标签
+curl -s "https://hub.docker.com/v2/repositories/langgenius/dify-api/tags?page_size=10" | python3 -c "import sys,json; tags=json.load(sys.stdin)['results']; print('\n'.join([t['name'] for t in tags]))"
+
+# 查看 dify-web 最新标签
+curl -s "https://hub.docker.com/v2/repositories/langgenius/dify-web/tags?page_size=10" | python3 -c "import sys,json; tags=json.load(sys.stdin)['results']; print('\n'.join([t['name'] for t in tags]))"
+```
+
+#### 步骤 2：备份数据（重要！）
+
+```bash
+# 获取 stack 名称
+STACK_NAME=$(docker ps --filter "name=api" --format "{{.Names}}" | grep -oP "stack-[a-z0-9]+" | head -1)
+
+# 备份数据库
+docker exec ${STACK_NAME}-db-1 pg_dump -U postgres dify > dify_backup_$(date +%Y%m%d).sql
+docker exec ${STACK_NAME}-db-1 pg_dump -U postgres dify_plugin > dify_plugin_backup_$(date +%Y%m%d).sql
+
+echo "✅ 数据库备份完成"
+```
+
+#### 步骤 3：更新 Docker Compose 文件
+
+在 Dokploy 的 **General** → **Compose File** 中，修改镜像版本：
+
+```yaml
+# 将旧版本
+image: langgenius/dify-api:1.10.1-fix.1
+image: langgenius/dify-web:1.10.1-fix.1
+
+# 改为新版本（例如 1.11.0）
+image: langgenius/dify-api:1.11.0
+image: langgenius/dify-web:1.11.0
+```
+
+需要修改的位置（共 4 处）：
+- `api` 服务
+- `worker` 服务
+- `worker_beat` 服务
+- `web` 服务
+
+点击 **Save** 保存。
+
+#### 步骤 4：检查 Plugin Daemon 版本
+
+访问 [dify-plugin-daemon releases](https://github.com/langgenius/dify-plugin-daemon/releases) 查看是否有新版本。
+
+如果需要升级 plugin-daemon：
+```bash
+STACK_NAME=$(docker ps --filter "name=api" --format "{{.Names}}" | grep -oP "stack-[a-z0-9]+" | head -1)
+
+# 拉取新镜像
+docker pull langgenius/dify-plugin-daemon:NEW_VERSION
+
+# 删除旧容器
+docker rm -f ${STACK_NAME}-plugin_daemon-1
+
+# 使用 fix 脚本重建（修改脚本中的版本号）
+# 或手动创建新容器
+```
+
+#### 步骤 5：重新部署
+
+1. 在 Dokploy 中点击 **Deploy** 按钮
+2. 等待新镜像拉取完成
+3. 容器自动重启
+
+#### 步骤 6：重新运行修复脚本
+
+```bash
+sudo /opt/dify/docker/fix-dify-deployment.sh
+```
+
+#### 步骤 7：验证升级
+
+```bash
+# 检查版本（通过 API）
+curl -s https://your-domain.com/console/api/version
+
+# 检查容器镜像版本
+docker ps --filter "name=stack-" --format "table {{.Names}}\t{{.Image}}"
+```
+
+---
+
+### 升级注意事项
+
+1. **备份优先**：升级前务必备份数据库
+2. **查看更新日志**：阅读 Release Notes 了解破坏性变更
+3. **测试环境**：建议先在测试环境验证
+4. **回滚准备**：保留旧版本号，以便快速回滚
+
+### 回滚步骤
+
+如果升级失败，回滚到旧版本：
+
+```bash
+# 1. 在 Dokploy 中将镜像版本改回旧版本
+# 2. 重新部署
+# 3. 如需恢复数据库：
+docker exec -i ${STACK_NAME}-db-1 psql -U postgres dify < dify_backup_YYYYMMDD.sql
+```
+
+---
+
+### 自动升级脚本
+
+保存为 `upgrade-dify.sh`：
+
+```bash
+#!/bin/bash
+# Dify 升级脚本
+
+NEW_API_VERSION=${1:-"latest"}
+NEW_WEB_VERSION=${2:-$NEW_API_VERSION}
+
+STACK_NAME=$(docker ps --filter "name=api" --format "{{.Names}}" | grep -oP "stack-[a-z0-9]+" | head -1)
+
+if [ -z "$STACK_NAME" ]; then
+    echo "❌ 未找到 Dify 部署"
+    exit 1
+fi
+
+echo "🔄 升级 Dify 到版本: API=$NEW_API_VERSION, Web=$NEW_WEB_VERSION"
+
+# 备份
+echo "📦 备份数据库..."
+docker exec ${STACK_NAME}-db-1 pg_dump -U postgres dify > dify_backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 拉取新镜像
+echo "⬇️ 拉取新镜像..."
+docker pull langgenius/dify-api:${NEW_API_VERSION}
+docker pull langgenius/dify-web:${NEW_WEB_VERSION}
+
+echo ""
+echo "✅ 镜像已拉取。请在 Dokploy 中："
+echo "   1. 更新 Compose 文件中的镜像版本"
+echo "   2. 点击 Deploy 重新部署"
+echo "   3. 运行 fix-dify-deployment.sh"
+```
+
+使用方法：
+```bash
+chmod +x upgrade-dify.sh
+./upgrade-dify.sh 1.11.0  # 指定版本
+```
+

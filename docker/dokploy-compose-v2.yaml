@@ -95,14 +95,14 @@ services:
       - default
       - dokploy-network
     labels:
-      # Traefik - API 路由 (处理 /api, /console/api, /v1, /files 等路径)
+      # Traefik - API 路由 (处理 /api, /console/api, /v1, /files, /mcp 等路径)
       - "traefik.enable=true"
       # HTTP 路由 - 重定向到 HTTPS
-      - "traefik.http.routers.dify-api-http.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`))"
+      - "traefik.http.routers.dify-api-http.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`) || PathPrefix(`/mcp`))"
       - "traefik.http.routers.dify-api-http.entrypoints=web"
       - "traefik.http.routers.dify-api-http.middlewares=redirect-to-https"
       # HTTPS 路由
-      - "traefik.http.routers.dify-api.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`))"
+      - "traefik.http.routers.dify-api.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`) || PathPrefix(`/mcp`))"
       - "traefik.http.routers.dify-api.entrypoints=websecure"
       - "traefik.http.routers.dify-api.tls=true"
       - "traefik.http.routers.dify-api.tls.certresolver=letsencrypt"
@@ -267,37 +267,48 @@ services:
     image: langgenius/dify-plugin-daemon:0.4.1-local
     restart: always
     environment:
-      DB_HOST: ${DB_HOST:-db}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_USER: ${DB_USERNAME:-postgres}
-      DB_PASS: ${DB_PASSWORD:-difyai123456}
-      DB_NAME: ${DB_DATABASE:-dify}
+      # 数据库配置
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: difyai123456
+      DB_DATABASE: dify_plugin
+      # Redis 配置
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: difyai123456
+      REDIS_DB: 0
+      # 服务配置
       SERVER_PORT: 5002
       SERVER_KEY: ${PLUGIN_DAEMON_KEY:-lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi}
       MAX_PLUGIN_PACKAGE_SIZE: ${PLUGIN_MAX_PACKAGE_SIZE:-52428800}
       PPROF_ENABLED: false
       DIFY_INNER_API_URL: http://api:5001
       DIFY_INNER_API_KEY: ${INNER_API_KEY_FOR_PLUGIN:-QaHbTe77CtuXmsfyhR7+vRjI/+XbV1AaFy691iy+kGDv2Jvy0/eAh8Y1}
-      PLUGIN_REMOTE_INSTALLING_HOST: ${PLUGIN_REMOTE_INSTALLING_HOST:-}
-      PLUGIN_REMOTE_INSTALLING_PORT: ${PLUGIN_REMOTE_INSTALLING_PORT:-}
+      # 插件远程安装配置
+      PLUGIN_REMOTE_INSTALLING_HOST: 0.0.0.0
+      PLUGIN_REMOTE_INSTALLING_PORT: 5003
+      # 插件运行时配置（关键！）
       PLUGIN_WORKING_PATH: /app/storage/cwd
-      FORCE_VERIFYING_SIGNATURE: ${FORCE_VERIFYING_SIGNATURE:-false}
-      PYTHON_ENV_INIT_TIMEOUT: ${PYTHON_ENV_INIT_TIMEOUT:-120}
-      PIP_MIRROR_URL: ${PIP_MIRROR_URL:-}
-      ENDPOINT_URL_TEMPLATE: ${ENDPOINT_URL_TEMPLATE:-http://api:5001/e/{hook_id}}
-      PLUGIN_STORAGE_LOCAL_ROOT: /app/storage/plugins
-      PLUGIN_STORAGE_TENANT_ID: ${PLUGIN_STORAGE_TENANT_ID:-}
-      PLUGIN_STORAGE_OSS_BUCKET: ${PLUGIN_STORAGE_OSS_BUCKET:-}
-      PLUGIN_STORAGE_OSS_ACCESS_KEY: ${PLUGIN_STORAGE_OSS_ACCESS_KEY:-}
-      PLUGIN_STORAGE_OSS_SECRET_KEY: ${PLUGIN_STORAGE_OSS_SECRET_KEY:-}
-      PLUGIN_STORAGE_OSS_ENDPOINT: ${PLUGIN_STORAGE_OSS_ENDPOINT:-}
-      PLUGIN_STORAGE_OSS_REGION: ${PLUGIN_STORAGE_OSS_REGION:-}
-      ENCRYPTION_SECRET_KEY: ${ENCRYPTION_SECRET_KEY:-}
+      PLUGIN_STORAGE_TYPE: local
+      PLUGIN_STORAGE_LOCAL_ROOT: /app/storage
+      PLUGIN_INSTALLED_PATH: plugin
+      PLUGIN_PACKAGE_CACHE_PATH: plugin_packages
+      PLUGIN_MEDIA_CACHE_PATH: assets
+      # 插件执行配置
+      PLUGIN_MAX_EXECUTION_TIMEOUT: 600
+      PLUGIN_STDIO_BUFFER_SIZE: 1024
+      PLUGIN_STDIO_MAX_BUFFER_SIZE: 5242880
+      PYTHON_ENV_INIT_TIMEOUT: 120
+      FORCE_VERIFYING_SIGNATURE: false
+      PIP_MIRROR_URL: ""
+      ENDPOINT_URL_TEMPLATE: http://api:5001/e/{hook_id}
       PLATFORM: local
     volumes:
       - plugin_daemon_storage:/app/storage
     depends_on:
       - db
+      - redis
     networks:
       - default
       - dokploy-network
