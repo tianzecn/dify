@@ -175,10 +175,11 @@ services:
     labels:
       # ⚠️ 修改下面的域名为你的域名
       - "traefik.enable=true"
-      - "traefik.http.routers.dify-api-http.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`))"
+      # ⚠️ 包含 /mcp 路径用于 MCP 服务器支持
+      - "traefik.http.routers.dify-api-http.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`) || PathPrefix(`/mcp`))"
       - "traefik.http.routers.dify-api-http.entrypoints=web"
       - "traefik.http.routers.dify-api-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.dify-api.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`))"
+      - "traefik.http.routers.dify-api.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`) || PathPrefix(`/mcp`))"
       - "traefik.http.routers.dify-api.entrypoints=websecure"
       - "traefik.http.routers.dify-api.tls=true"
       - "traefik.http.routers.dify-api.tls.certresolver=letsencrypt"
@@ -315,6 +316,59 @@ services:
       DEFAULT_VECTORIZER_MODULE: none
       CLUSTER_HOSTNAME: node1
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
+    networks:
+      - default
+      - dokploy-network
+
+  # ============================================
+  # Plugin Daemon 服务（关键！）
+  # ============================================
+  plugin_daemon:
+    image: langgenius/dify-plugin-daemon:0.4.1-local
+    restart: always
+    environment:
+      # 数据库配置
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: difyai123456
+      DB_DATABASE: dify_plugin
+      # Redis 配置
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: difyai123456
+      REDIS_DB: 0
+      # 服务配置
+      SERVER_PORT: 5002
+      SERVER_KEY: ${PLUGIN_DAEMON_KEY:-lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi}
+      MAX_PLUGIN_PACKAGE_SIZE: 52428800
+      PPROF_ENABLED: false
+      DIFY_INNER_API_URL: http://api:5001
+      DIFY_INNER_API_KEY: ${INNER_API_KEY_FOR_PLUGIN:-QaHbTe77CtuXmsfyhR7+vRjI/+XbV1AaFy691iy+kGDv2Jvy0/eAh8Y1}
+      # 插件远程安装配置
+      PLUGIN_REMOTE_INSTALLING_HOST: 0.0.0.0
+      PLUGIN_REMOTE_INSTALLING_PORT: 5003
+      # 插件运行时配置（关键！）
+      PLUGIN_WORKING_PATH: /app/storage/cwd
+      PLUGIN_STORAGE_TYPE: local
+      PLUGIN_STORAGE_LOCAL_ROOT: /app/storage
+      PLUGIN_INSTALLED_PATH: plugin
+      PLUGIN_PACKAGE_CACHE_PATH: plugin_packages
+      PLUGIN_MEDIA_CACHE_PATH: assets
+      # 插件执行配置
+      PLUGIN_MAX_EXECUTION_TIMEOUT: 600
+      PLUGIN_STDIO_BUFFER_SIZE: 1024
+      PLUGIN_STDIO_MAX_BUFFER_SIZE: 5242880
+      PYTHON_ENV_INIT_TIMEOUT: 120
+      FORCE_VERIFYING_SIGNATURE: false
+      PIP_MIRROR_URL: ""
+      ENDPOINT_URL_TEMPLATE: http://api:5001/e/{hook_id}
+      PLATFORM: local
+    volumes:
+      - plugin_daemon_storage:/app/storage
+    depends_on:
+      - db
+      - redis
     networks:
       - default
       - dokploy-network
@@ -464,14 +518,15 @@ docker run -d \
   --network ${STACK_NAME}_default \
   --network-alias plugin_daemon \
   --restart always \
-  -e DB_USERNAME=postgres \
-  -e DB_PASSWORD=difyai123456 \
   -e DB_HOST=db \
   -e DB_PORT=5432 \
+  -e DB_USERNAME=postgres \
+  -e DB_PASSWORD=difyai123456 \
   -e DB_DATABASE=dify_plugin \
   -e REDIS_HOST=redis \
   -e REDIS_PORT=6379 \
   -e REDIS_PASSWORD=difyai123456 \
+  -e REDIS_DB=0 \
   -e SERVER_PORT=5002 \
   -e "SERVER_KEY=lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi" \
   -e MAX_PLUGIN_PACKAGE_SIZE=52428800 \
@@ -481,17 +536,25 @@ docker run -d \
   -e PLUGIN_REMOTE_INSTALLING_HOST=0.0.0.0 \
   -e PLUGIN_REMOTE_INSTALLING_PORT=5003 \
   -e PLUGIN_WORKING_PATH=/app/storage/cwd \
-  -e FORCE_VERIFYING_SIGNATURE=false \
-  -e PYTHON_ENV_INIT_TIMEOUT=120 \
-  -e "ENDPOINT_URL_TEMPLATE=http://api:5001/e/{hook_id}" \
   -e PLUGIN_STORAGE_TYPE=local \
   -e PLUGIN_STORAGE_LOCAL_ROOT=/app/storage \
+  -e PLUGIN_INSTALLED_PATH=plugin \
+  -e PLUGIN_PACKAGE_CACHE_PATH=plugin_packages \
+  -e PLUGIN_MEDIA_CACHE_PATH=assets \
+  -e PLUGIN_MAX_EXECUTION_TIMEOUT=600 \
+  -e PLUGIN_STDIO_BUFFER_SIZE=1024 \
+  -e PLUGIN_STDIO_MAX_BUFFER_SIZE=5242880 \
+  -e PYTHON_ENV_INIT_TIMEOUT=120 \
+  -e FORCE_VERIFYING_SIGNATURE=false \
+  -e "ENDPOINT_URL_TEMPLATE=http://api:5001/e/{hook_id}" \
   -e PLATFORM=local \
   -v ${STACK_NAME}_plugin_daemon_storage:/app/storage \
   langgenius/dify-plugin-daemon:0.4.1-local
 ```
 
-> ⚠️ **关键点**：`--network-alias plugin_daemon` 必须设置，否则 API 无法通过 `plugin_daemon` 主机名找到它！
+> ⚠️ **关键点**：
+> 1. `--network-alias plugin_daemon` 必须设置，否则 API 无法通过 `plugin_daemon` 主机名找到它！
+> 2. `PLUGIN_STORAGE_TYPE`、`PLUGIN_INSTALLED_PATH` 等运行时配置必须设置，否则插件无法正常加载！
 
 ### 6.4 验证 Plugin Daemon
 
@@ -639,7 +702,7 @@ PLUGIN_STORAGE=$(docker volume inspect ${STACK_NAME}_plugin_daemon_storage 2>/de
 echo "🗄️ 创建 Plugin 数据库..."
 docker exec ${STACK_NAME}-db-1 psql -U postgres -c "CREATE DATABASE dify_plugin;" 2>/dev/null || echo "数据库已存在"
 
-# 3. 重建 Plugin Daemon
+# 3. 重建 Plugin Daemon（包含完整的运行时配置）
 echo "🔄 重建 Plugin Daemon..."
 docker rm -f ${STACK_NAME}-plugin_daemon-1 2>/dev/null || true
 
@@ -648,14 +711,15 @@ docker run -d \
   --network ${STACK_NAME}_default \
   --network-alias plugin_daemon \
   --restart always \
-  -e DB_USERNAME=postgres \
-  -e DB_PASSWORD=difyai123456 \
   -e DB_HOST=db \
   -e DB_PORT=5432 \
+  -e DB_USERNAME=postgres \
+  -e DB_PASSWORD=difyai123456 \
   -e DB_DATABASE=dify_plugin \
   -e REDIS_HOST=redis \
   -e REDIS_PORT=6379 \
   -e REDIS_PASSWORD=difyai123456 \
+  -e REDIS_DB=0 \
   -e SERVER_PORT=5002 \
   -e "SERVER_KEY=lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi" \
   -e MAX_PLUGIN_PACKAGE_SIZE=52428800 \
@@ -665,11 +729,17 @@ docker run -d \
   -e PLUGIN_REMOTE_INSTALLING_HOST=0.0.0.0 \
   -e PLUGIN_REMOTE_INSTALLING_PORT=5003 \
   -e PLUGIN_WORKING_PATH=/app/storage/cwd \
-  -e FORCE_VERIFYING_SIGNATURE=false \
-  -e PYTHON_ENV_INIT_TIMEOUT=120 \
-  -e "ENDPOINT_URL_TEMPLATE=http://api:5001/e/{hook_id}" \
   -e PLUGIN_STORAGE_TYPE=local \
   -e PLUGIN_STORAGE_LOCAL_ROOT=/app/storage \
+  -e PLUGIN_INSTALLED_PATH=plugin \
+  -e PLUGIN_PACKAGE_CACHE_PATH=plugin_packages \
+  -e PLUGIN_MEDIA_CACHE_PATH=assets \
+  -e PLUGIN_MAX_EXECUTION_TIMEOUT=600 \
+  -e PLUGIN_STDIO_BUFFER_SIZE=1024 \
+  -e PLUGIN_STDIO_MAX_BUFFER_SIZE=5242880 \
+  -e PYTHON_ENV_INIT_TIMEOUT=120 \
+  -e FORCE_VERIFYING_SIGNATURE=false \
+  -e "ENDPOINT_URL_TEMPLATE=http://api:5001/e/{hook_id}" \
   -e PLATFORM=local \
   -v ${STACK_NAME}_plugin_daemon_storage:/app/storage \
   langgenius/dify-plugin-daemon:0.4.1-local

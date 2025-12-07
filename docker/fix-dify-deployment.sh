@@ -77,14 +77,15 @@ docker run -d \
   --network ${STACK_NAME}_default \
   --network-alias plugin_daemon \
   --restart always \
-  -e DB_USERNAME=postgres \
-  -e DB_PASSWORD=difyai123456 \
   -e DB_HOST=db \
   -e DB_PORT=5432 \
+  -e DB_USERNAME=postgres \
+  -e DB_PASSWORD=difyai123456 \
   -e DB_DATABASE=dify_plugin \
   -e REDIS_HOST=redis \
   -e REDIS_PORT=6379 \
   -e REDIS_PASSWORD=difyai123456 \
+  -e REDIS_DB=0 \
   -e SERVER_PORT=5002 \
   -e "SERVER_KEY=lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi" \
   -e MAX_PLUGIN_PACKAGE_SIZE=52428800 \
@@ -94,11 +95,17 @@ docker run -d \
   -e PLUGIN_REMOTE_INSTALLING_HOST=0.0.0.0 \
   -e PLUGIN_REMOTE_INSTALLING_PORT=5003 \
   -e PLUGIN_WORKING_PATH=/app/storage/cwd \
-  -e FORCE_VERIFYING_SIGNATURE=false \
-  -e PYTHON_ENV_INIT_TIMEOUT=120 \
-  -e "ENDPOINT_URL_TEMPLATE=http://api:5001/e/{hook_id}" \
   -e PLUGIN_STORAGE_TYPE=local \
   -e PLUGIN_STORAGE_LOCAL_ROOT=/app/storage \
+  -e PLUGIN_INSTALLED_PATH=plugin \
+  -e PLUGIN_PACKAGE_CACHE_PATH=plugin_packages \
+  -e PLUGIN_MEDIA_CACHE_PATH=assets \
+  -e PLUGIN_MAX_EXECUTION_TIMEOUT=600 \
+  -e PLUGIN_STDIO_BUFFER_SIZE=1024 \
+  -e PLUGIN_STDIO_MAX_BUFFER_SIZE=5242880 \
+  -e PYTHON_ENV_INIT_TIMEOUT=120 \
+  -e FORCE_VERIFYING_SIGNATURE=false \
+  -e "ENDPOINT_URL_TEMPLATE=http://api:5001/e/{hook_id}" \
   -e PLATFORM=local \
   -v ${STACK_NAME}_plugin_daemon_storage:/app/storage \
   langgenius/dify-plugin-daemon:0.4.1-local > /dev/null
