@@ -1,0 +1,318 @@
+# ==================================================================
+# Dokploy 部署专用 Docker Compose 文件 - V2 简化版
+# 直接使用 Traefik 路由到 api 和 web，绕过 nginx
+# 域名: dify.mymanus.me
+# ==================================================================
+
+x-shared-env: &shared-api-worker-env
+  CONSOLE_API_URL: ${CONSOLE_API_URL:-}
+  CONSOLE_WEB_URL: ${CONSOLE_WEB_URL:-}
+  SERVICE_API_URL: ${SERVICE_API_URL:-}
+  TRIGGER_URL: ${TRIGGER_URL:-http://localhost}
+  APP_API_URL: ${APP_API_URL:-}
+  APP_WEB_URL: ${APP_WEB_URL:-}
+  FILES_URL: ${FILES_URL:-}
+  INTERNAL_FILES_URL: ${INTERNAL_FILES_URL:-}
+  LANG: ${LANG:-en_US.UTF-8}
+  LC_ALL: ${LC_ALL:-en_US.UTF-8}
+  PYTHONIOENCODING: ${PYTHONIOENCODING:-utf-8}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FILE: ${LOG_FILE:-/app/logs/server.log}
+  LOG_FILE_MAX_SIZE: ${LOG_FILE_MAX_SIZE:-20}
+  LOG_FILE_BACKUP_COUNT: ${LOG_FILE_BACKUP_COUNT:-5}
+  LOG_DATEFORMAT: ${LOG_DATEFORMAT:-%Y-%m-%d %H:%M:%S}
+  LOG_TZ: ${LOG_TZ:-UTC}
+  DEBUG: ${DEBUG:-false}
+  FLASK_DEBUG: ${FLASK_DEBUG:-false}
+  ENABLE_REQUEST_LOGGING: ${ENABLE_REQUEST_LOGGING:-False}
+  SECRET_KEY: ${SECRET_KEY:-sk-9f73s3ljTXVcMT3Blb3ljTqtsKiGHXVcMT3BlbkFJLK7U}
+  INIT_PASSWORD: ${INIT_PASSWORD:-}
+  DEPLOY_ENV: ${DEPLOY_ENV:-PRODUCTION}
+  CHECK_UPDATE_URL: ${CHECK_UPDATE_URL:-https://updates.dify.ai}
+  OPENAI_API_BASE: ${OPENAI_API_BASE:-https://api.openai.com/v1}
+  MIGRATION_ENABLED: ${MIGRATION_ENABLED:-true}
+  FILES_ACCESS_TIMEOUT: ${FILES_ACCESS_TIMEOUT:-300}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+  LOGIN_DISABLED: ${LOGIN_DISABLED:-false}
+  LOG_FORMAT: ${LOG_FORMAT:-%(asctime)s.%(msecs)03d %(levelname)s [%(threadName)s] [%(filename)s:%(lineno)d] - %(message)s}
+  DB_USERNAME: ${DB_USERNAME:-postgres}
+  DB_PASSWORD: ${DB_PASSWORD:-difyai123456}
+  DB_HOST: ${DB_HOST:-db}
+  DB_PORT: ${DB_PORT:-5432}
+  DB_DATABASE: ${DB_DATABASE:-dify}
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-difyai123456}
+  REDIS_USE_SSL: ${REDIS_USE_SSL:-false}
+  REDIS_DB: 0
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://:difyai123456@redis:6379/1}
+  BROKER_USE_SSL: ${BROKER_USE_SSL:-false}
+  WEB_API_CORS_ALLOW_ORIGINS: ${WEB_API_CORS_ALLOW_ORIGINS:-*}
+  CONSOLE_CORS_ALLOW_ORIGINS: ${CONSOLE_CORS_ALLOW_ORIGINS:-*}
+  STORAGE_TYPE: ${STORAGE_TYPE:-opendal}
+  OPENDAL_SCHEME: ${OPENDAL_SCHEME:-fs}
+  OPENDAL_FS_ROOT: ${OPENDAL_FS_ROOT:-/app/api/storage}
+  VECTOR_STORE: ${VECTOR_STORE:-weaviate}
+  WEAVIATE_ENDPOINT: ${WEAVIATE_ENDPOINT:-http://weaviate:8080}
+  WEAVIATE_API_KEY: ${WEAVIATE_API_KEY:-WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih}
+  CODE_EXECUTION_ENDPOINT: ${CODE_EXECUTION_ENDPOINT:-http://sandbox:8194}
+  CODE_EXECUTION_API_KEY: ${CODE_EXECUTION_API_KEY:-dify-sandbox}
+  CODE_MAX_NUMBER: ${CODE_MAX_NUMBER:-9223372036854775807}
+  CODE_MIN_NUMBER: ${CODE_MIN_NUMBER:--9223372036854775808}
+  CODE_MAX_DEPTH: ${CODE_MAX_DEPTH:-5}
+  CODE_MAX_PRECISION: ${CODE_MAX_PRECISION:-20}
+  CODE_MAX_STRING_LENGTH: ${CODE_MAX_STRING_LENGTH:-80000}
+  CODE_MAX_STRING_ARRAY_LENGTH: ${CODE_MAX_STRING_ARRAY_LENGTH:-30}
+  CODE_MAX_OBJECT_ARRAY_LENGTH: ${CODE_MAX_OBJECT_ARRAY_LENGTH:-30}
+  CODE_MAX_NUMBER_ARRAY_LENGTH: ${CODE_MAX_NUMBER_ARRAY_LENGTH:-1000}
+  PLUGIN_DAEMON_BASE_URL: ${PLUGIN_DAEMON_BASE_URL:-http://plugin_daemon:5002}
+  PLUGIN_DAEMON_KEY: ${PLUGIN_DAEMON_KEY:-lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi}
+  PLUGIN_DAEMON_URL: ${PLUGIN_DAEMON_URL:-http://plugin_daemon:5002}
+  PLUGIN_MAX_PACKAGE_SIZE: ${PLUGIN_MAX_PACKAGE_SIZE:-52428800}
+  INNER_API_KEY_FOR_PLUGIN: ${INNER_API_KEY_FOR_PLUGIN:-QaHbTe77CtuXmsfyhR7+vRjI/+XbV1AaFy691iy+kGDv2Jvy0/eAh8Y1}
+  ENDPOINT_URL_TEMPLATE: ${ENDPOINT_URL_TEMPLATE:-http://api:5001/e/{hook_id}}
+  MARKETPLACE_API_URL: ${MARKETPLACE_API_URL:-https://marketplace.dify.ai}
+  MARKETPLACE_ENABLED: ${MARKETPLACE_ENABLED:-true}
+
+services:
+  # ============================================
+  # API 服务 - 带 Traefik 标签
+  # ============================================
+  api:
+    image: langgenius/dify-api:1.10.1-fix.1
+    restart: always
+    environment:
+      <<: *shared-api-worker-env
+      MODE: api
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - api_storage:/app/api/storage
+      - api_logs:/app/logs
+    networks:
+      - default
+      - dokploy-network
+    labels:
+      # Traefik - API 路由 (处理 /api, /console/api, /v1, /files 等路径)
+      - "traefik.enable=true"
+      # HTTP 路由 - 重定向到 HTTPS
+      - "traefik.http.routers.dify-api-http.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`))"
+      - "traefik.http.routers.dify-api-http.entrypoints=web"
+      - "traefik.http.routers.dify-api-http.middlewares=redirect-to-https"
+      # HTTPS 路由
+      - "traefik.http.routers.dify-api.rule=Host(`dify.mymanus.me`) && (PathPrefix(`/api`) || PathPrefix(`/console/api`) || PathPrefix(`/v1`) || PathPrefix(`/files`))"
+      - "traefik.http.routers.dify-api.entrypoints=websecure"
+      - "traefik.http.routers.dify-api.tls=true"
+      - "traefik.http.routers.dify-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dify-api.priority=100"
+      # 服务配置
+      - "traefik.http.services.dify-api.loadbalancer.server.port=5001"
+      # 中间件
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
+  # ============================================
+  # Worker 服务
+  # ============================================
+  worker:
+    image: langgenius/dify-api:1.10.1-fix.1
+    restart: always
+    environment:
+      <<: *shared-api-worker-env
+      MODE: worker
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - api_storage:/app/api/storage
+      - worker_logs:/app/logs
+    networks:
+      - default
+      - dokploy-network
+
+  # ============================================
+  # Worker Beat 服务
+  # ============================================
+  worker_beat:
+    image: langgenius/dify-api:1.10.1-fix.1
+    restart: always
+    environment:
+      <<: *shared-api-worker-env
+      MODE: worker
+      CELERY_AUTO_SCALE: "false"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - api_storage:/app/api/storage
+    entrypoint:
+      [
+        "celery",
+        "-A",
+        "app.celery",
+        "beat",
+        "-l",
+        "INFO"
+      ]
+    networks:
+      - default
+      - dokploy-network
+
+  # ============================================
+  # Web 前端服务 - 带 Traefik 标签
+  # ============================================
+  web:
+    image: langgenius/dify-web:1.10.1-fix.1
+    restart: always
+    environment:
+      CONSOLE_API_URL: ${CONSOLE_API_URL:-}
+      APP_API_URL: ${APP_API_URL:-}
+      SENTRY_DSN: ${WEB_SENTRY_DSN:-}
+      NEXT_TELEMETRY_DISABLED: ${NEXT_TELEMETRY_DISABLED:-1}
+      TEXT_GENERATION_TIMEOUT_MS: ${TEXT_GENERATION_TIMEOUT_MS:-60000}
+      CSP_WHITELIST: ${CSP_WHITELIST:-}
+      TOP_K_MAX_VALUE: ${TOP_K_MAX_VALUE:-}
+      INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH: ${INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH:-}
+    networks:
+      - default
+      - dokploy-network
+    labels:
+      # Traefik - Web 路由 (处理所有其他路径)
+      - "traefik.enable=true"
+      # HTTP 路由 - 重定向到 HTTPS
+      - "traefik.http.routers.dify-web-http.rule=Host(`dify.mymanus.me`)"
+      - "traefik.http.routers.dify-web-http.entrypoints=web"
+      - "traefik.http.routers.dify-web-http.middlewares=redirect-to-https"
+      # HTTPS 路由
+      - "traefik.http.routers.dify-web.rule=Host(`dify.mymanus.me`)"
+      - "traefik.http.routers.dify-web.entrypoints=websecure"
+      - "traefik.http.routers.dify-web.tls=true"
+      - "traefik.http.routers.dify-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dify-web.priority=1"
+      # 服务配置
+      - "traefik.http.services.dify-web.loadbalancer.server.port=3000"
+
+  # ============================================
+  # 数据库服务
+  # ============================================
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-difyai123456}
+      POSTGRES_DB: ${DB_DATABASE:-dify}
+    command: >
+      postgres -c 'max_connections=400'
+               -c 'shared_buffers=256MB'
+               -c 'effective_cache_size=768MB'
+               -c 'maintenance_work_mem=64MB'
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready" ]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks:
+      - default
+      - dokploy-network
+
+  # ============================================
+  # Redis 服务
+  # ============================================
+  redis:
+    image: redis:6-alpine
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-difyai123456}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks:
+      - default
+      - dokploy-network
+
+  # ============================================
+  # Weaviate 向量数据库
+  # ============================================
+  weaviate:
+    image: semitechnologies/weaviate:1.27.0
+    restart: always
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    environment:
+      AUTHENTICATION_APIKEY_ENABLED: true
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_API_KEY:-WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih}
+      AUTHENTICATION_APIKEY_USERS: hello@dify.ai
+      AUTHORIZATION_ADMINLIST_ENABLED: true
+      AUTHORIZATION_ADMINLIST_USERS: hello@dify.ai
+      QUERY_DEFAULTS_LIMIT: 25
+      DEFAULT_VECTORIZER_MODULE: none
+      CLUSTER_HOSTNAME: node1
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+    networks:
+      - default
+      - dokploy-network
+
+  # ============================================
+  # Plugin Daemon 服务
+  # ============================================
+  plugin_daemon:
+    image: langgenius/dify-plugin-daemon:0.4.1-local
+    restart: always
+    environment:
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USERNAME:-postgres}
+      DB_PASS: ${DB_PASSWORD:-difyai123456}
+      DB_NAME: ${DB_DATABASE:-dify}
+      SERVER_PORT: 5002
+      SERVER_KEY: ${PLUGIN_DAEMON_KEY:-lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi}
+      MAX_PLUGIN_PACKAGE_SIZE: ${PLUGIN_MAX_PACKAGE_SIZE:-52428800}
+      PPROF_ENABLED: false
+      DIFY_INNER_API_URL: http://api:5001
+      DIFY_INNER_API_KEY: ${INNER_API_KEY_FOR_PLUGIN:-QaHbTe77CtuXmsfyhR7+vRjI/+XbV1AaFy691iy+kGDv2Jvy0/eAh8Y1}
+      PLUGIN_REMOTE_INSTALLING_HOST: ${PLUGIN_REMOTE_INSTALLING_HOST:-}
+      PLUGIN_REMOTE_INSTALLING_PORT: ${PLUGIN_REMOTE_INSTALLING_PORT:-}
+      PLUGIN_WORKING_PATH: /app/storage/cwd
+      FORCE_VERIFYING_SIGNATURE: ${FORCE_VERIFYING_SIGNATURE:-false}
+      PYTHON_ENV_INIT_TIMEOUT: ${PYTHON_ENV_INIT_TIMEOUT:-120}
+      PIP_MIRROR_URL: ${PIP_MIRROR_URL:-}
+      ENDPOINT_URL_TEMPLATE: ${ENDPOINT_URL_TEMPLATE:-http://api:5001/e/{hook_id}}
+      PLUGIN_STORAGE_LOCAL_ROOT: /app/storage/plugins
+      PLUGIN_STORAGE_TENANT_ID: ${PLUGIN_STORAGE_TENANT_ID:-}
+      PLUGIN_STORAGE_OSS_BUCKET: ${PLUGIN_STORAGE_OSS_BUCKET:-}
+      PLUGIN_STORAGE_OSS_ACCESS_KEY: ${PLUGIN_STORAGE_OSS_ACCESS_KEY:-}
+      PLUGIN_STORAGE_OSS_SECRET_KEY: ${PLUGIN_STORAGE_OSS_SECRET_KEY:-}
+      PLUGIN_STORAGE_OSS_ENDPOINT: ${PLUGIN_STORAGE_OSS_ENDPOINT:-}
+      PLUGIN_STORAGE_OSS_REGION: ${PLUGIN_STORAGE_OSS_REGION:-}
+      ENCRYPTION_SECRET_KEY: ${ENCRYPTION_SECRET_KEY:-}
+      PLATFORM: local
+    volumes:
+      - plugin_daemon_storage:/app/storage
+    depends_on:
+      - db
+    networks:
+      - default
+      - dokploy-network
+
+volumes:
+  api_storage:
+  api_logs:
+  worker_logs:
+  db_data:
+  redis_data:
+  weaviate_data:
+  plugin_daemon_storage:
+
+networks:
+  default:
+  dokploy-network:
+    external: true
+
